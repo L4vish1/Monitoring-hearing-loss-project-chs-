@@ -7,6 +7,16 @@
 
 import SwiftUI
 
+import HealthKit
+
+import Charts
+
+struct ExposurePoint: Identifiable {
+    let id = UUID()
+    let date : Date
+    let decibels: Double
+}
+
 struct ContentView: View {
     var body: some View {
         TabView{
@@ -41,8 +51,26 @@ struct TestView: View {
 
 }
 struct DataView: View {
+   private let healthStore = HKHealthStore()
+    
+    @State private var exposureData: [ExposurePoint] = []
+    
+    func requestPermission() {
+        guard let exposureType = HKObjectType.quantityType(forIdentifier: .headphoneAudioExposure) else {return}
+        healthStore.requestAuthorization(toShare: [], read: [exposureType]) {success, error in
+            if success {
+                print("permission correct")
+            } else if let error = error {
+                print("Permission failed")
+            }
+            
+        }
+    }
     var body: some View {
-        Text("Data")
+       Text("Data")
+            .onAppear {
+                requestPermission()
+            }
     }
 
 }
