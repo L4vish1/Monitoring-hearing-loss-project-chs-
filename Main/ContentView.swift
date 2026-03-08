@@ -58,7 +58,7 @@ struct ContentView: View {
 
 struct StreakView: View {
     @State private var streakCount = 0
-    @State private var installDate: Date = UserDefaults.standard.object(forKey: "installDate") as? Date?? Date()
+    @State private var installDate: Date = UserDefaults.standard.object(forKey: "installDate") as? Date ?? Date()
     var body: some View {
         Text("Streak")
             .onAppear {
