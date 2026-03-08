@@ -9,10 +9,17 @@ import SwiftUI
 import HealthKit
 import Charts
 
+
+
 struct ExposurePoint: Identifiable {
     let id = UUID()
     let date: Date
     let decibels: Double
+    let type: ExposureType
+}
+
+enum ExposureType {
+    case average, max
 }
 
 enum TimeRange: String, CaseIterable {
@@ -24,8 +31,10 @@ enum TimeRange: String, CaseIterable {
 }
 
 struct ContentView: View {
+    
     var body: some View {
         TabView{
+            
             StreakView()
                 .tabItem{
                     Image(systemName: "chart.bar")
@@ -48,10 +57,19 @@ struct ContentView: View {
 }
 
 struct StreakView: View {
+    @State private var streakCount = 0
+    @State private var installDate: Date = UserDefaults.standard.object(forKey: "installDate") as? Date?? Date()
     var body: some View {
         Text("Streak")
+            .onAppear {
+                if UserDefaults.standard.object(forKey: "installDate") == nil {
+                    UserDefaults.standard.set(Date(), forKey: "installDate")
+                }
+            }
     }
 }
+
+
 
 struct TestView: View {
     var body: some View {
@@ -134,16 +152,17 @@ struct DataView: View {
                 
                 let db = sample.quantity.doubleValue(for: .decibelAWeightedSoundPressureLevel())
                 
-                if db >= 90 {
+                if db >= 85 {
                     warnings += 1
                 }
                 
                 let date = sample.startDate
-                points.append(ExposurePoint(date: date, decibels: db))
+                // Store raw points as average type temporarily for aggregation
+                points.append(ExposurePoint(date: date, decibels: db, type: .average))
             }
             
             DispatchQueue.main.async {
-                let cleanedData = aggregateAveragePerInterval(points)
+                let cleanedData = aggregatePerInterval(points)
                 exposureData = cleanedData
                 notificationCount = warnings
                 isLoading = false
@@ -153,7 +172,7 @@ struct DataView: View {
         healthStore.execute(query)
     }
     
-    func aggregateAveragePerInterval(_ rawData: [ExposurePoint]) -> [ExposurePoint] {
+    func aggregatePerInterval(_ rawData: [ExposurePoint]) -> [ExposurePoint] {
         
         var grouped: [Date: [Double]] = [:]
         let calendar = Calendar.current
@@ -183,11 +202,16 @@ struct DataView: View {
             grouped[key, default: []].append(point.decibels)
         }
         
-        return grouped.map { date, values in
+        var result: [ExposurePoint] = []
+
+        for (date, values) in grouped {
             let avg = values.reduce(0, +) / Double(values.count)
-            return ExposurePoint(date: date, decibels: avg)
+            let max = values.max() ?? avg
+            result.append(ExposurePoint(date: date, decibels: avg, type: .average))
+            result.append(ExposurePoint(date: date, decibels: max, type: .max))
         }
-        .sorted { $0.date < $1.date }
+
+        return result.sorted { $0.date < $1.date }
     }
     
     var body: some View {
@@ -199,13 +223,33 @@ struct DataView: View {
             }
             else {
                 
+                Text("Average & Max dB Over Time")
+                    .font(.title)
+                    .fontWeight(.bold)
+                
                 Chart(exposureData) { point in
                     LineMark(
                         x: .value("Date", point.date),
                         y: .value("dB", point.decibels)
                     )
+                    .foregroundStyle(by: .value("Type", point.type == .average ? "Average" : "Max"))
                 }
+                .chartYAxisLabel("dB", position: .leading)
+                .chartXAxisLabel("Date", position: .bottom)
+                .chartYScale(domain: {
+                    let values = exposureData.map { $0.decibels }
+                    let min = (values.min() ?? 0) - 5
+                    let max = (values.max() ?? 100) + 5
+                    return min...max
+                }())
+                .chartForegroundStyleScale([
+                    "Average": Color.blue,
+                    "Max": Color.red
+                ])
+                .chartLegend(position: .top)
                 .frame(height: 250)
+                .padding(.horizontal, 16)
+                
                 
                 Picker("Range", selection: $selectedRange) {
                     ForEach(TimeRange.allCases, id: \.self) { range in
@@ -219,7 +263,7 @@ struct DataView: View {
                     fetchExposureData()
                 }
                 
-                Text("Times over 90 dB: \(notificationCount)")
+                Text("Times over 85 dB: \(notificationCount)")
                     .padding(.top)
             }
         }
