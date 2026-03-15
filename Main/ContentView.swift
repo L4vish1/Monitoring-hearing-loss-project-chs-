@@ -37,6 +37,12 @@ enum TimeRange: String, CaseIterable {
     case all = "All"
 }
 
+struct HearingTestResult: Codable {
+    let date: Date
+    let leftEar: [String: Float]
+    let rightEar: [String: Float]
+}
+
 struct ContentView: View {
     var body: some View {
         TabView {
@@ -61,7 +67,6 @@ struct ContentView: View {
 
 struct StreakView: View {
     
-    
     @State private var streakCount = 0
     @State private var installDate: Date = UserDefaults.standard.object(forKey: "installDate") as? Date ?? Date()
     private let healthStore = HKHealthStore()
@@ -70,6 +75,10 @@ struct StreakView: View {
     @State private var todayIsSafe = false
     @State private var exposureSamples: [ExposureSample] = []
     private let threshold = 85.0
+    @State private var showingExportPrompt = false
+    @State private var phoneLastFour = ""
+    @State private var exportURLs: [URL] = []
+    @State private var showingShareSheet = false
     
     func requestPermission() {
         guard let exposureType = HKObjectType.quantityType(forIdentifier: .headphoneAudioExposure) else { return }
@@ -81,10 +90,75 @@ struct StreakView: View {
         }
     }
     
-    func scheduleStreakNotification() {
-       print("notif")
-        let notif = UNUserNotificationCenter.current()
+    func exportData(phoneLastFour: String, completion: @escaping ([URL]) -> Void) {
+        let calendar = Calendar.current
+        let fourMonthsAgo = calendar.date(byAdding: .month, value: -4, to: Date())!
+        
+        guard let exposureType = HKObjectType.quantityType(forIdentifier: .headphoneAudioExposure) else { return }
+        
+        let predicate = HKQuery.predicateForSamples(withStart: fourMonthsAgo, end: Date())
+        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+        
+        let query = HKSampleQuery(
+            sampleType: exposureType,
+            predicate: predicate,
+            limit: HKObjectQueryNoLimit,
+            sortDescriptors: [sortDescriptor]
+        ) { _, samples, _ in
+            guard let samples = samples as? [HKQuantitySample] else { return }
+            
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short
+            
+            // Build exposure CSV
+            var exposureCSV = "Date,Average dB,Max dB\n"
+            var grouped: [Date: [Double]] = [:]
+            
+            for sample in samples {
+                let day = calendar.startOfDay(for: sample.startDate)
+                let db = sample.quantity.doubleValue(for: .decibelAWeightedSoundPressureLevel())
+                grouped[day, default: []].append(db)
+            }
+            
+            for (day, values) in grouped.sorted(by: { $0.key < $1.key }) {
+                let avg = values.reduce(0, +) / Double(values.count)
+                let max = values.max() ?? avg
+                exposureCSV += "\(formatter.string(from: day)),\(String(format: "%.1f", avg)),\(String(format: "%.1f", max))\n"
+            }
+            
+            // Build hearing CSV
+            var hearingCSV = "Date,Frequency,Left Ear,Right Ear\n"
+            if let data = UserDefaults.standard.data(forKey: "hearingTestResults"),
+               let results = try? JSONDecoder().decode([HearingTestResult].self, from: data) {
+                for test in results {
+                    for freq in [250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0] {
+                        let left = test.leftEar[String(freq)] ?? 0
+                        let right = test.rightEar[String(freq)] ?? 0
+                        hearingCSV += "\(formatter.string(from: test.date)),\(Int(freq)),\(left),\(right)\n"
+                    }
+                }
+            }
+            
+            // Write files
+            let tempDir = FileManager.default.temporaryDirectory
+            let exposureURL = tempDir.appendingPathComponent("exposure_\(phoneLastFour).csv")
+            let hearingURL = tempDir.appendingPathComponent("hearing_\(phoneLastFour).csv")
+            
+            try? exposureCSV.write(to: exposureURL, atomically: true, encoding: .utf8)
+            try? hearingCSV.write(to: hearingURL, atomically: true, encoding: .utf8)
+            
+            DispatchQueue.main.async {
+                completion([exposureURL, hearingURL])
+            }
+        }
+        
+        healthStore.execute(query)
+    }
     
+    func scheduleStreakNotification() {
+        print("notif")
+        let notif = UNUserNotificationCenter.current()
+        
         notif.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             guard granted else { return }
             let content = UNMutableNotificationContent()
@@ -98,17 +172,12 @@ struct StreakView: View {
             dateComponents.minute = 0
             
             let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-            
             let request = UNNotificationRequest(identifier: "dailystreak", content: content, trigger: trigger)
             
             notif.removePendingNotificationRequests(withIdentifiers: ["dailystreak"])
-            
             notif.add(request)
-            
-            
         }
     }
-    
     
     func fetchStreakData() {
         guard let exposureType = HKObjectType.quantityType(forIdentifier: .headphoneAudioExposure) else { return }
@@ -154,9 +223,8 @@ struct StreakView: View {
             }
         }
         var dailySafe: [Date: Bool] = [:]
-        for (day,seconds) in dailyLoudSeconds {
+        for (day, seconds) in dailyLoudSeconds {
             dailySafe[day] = seconds < 1800
-            
         }
         todayIsSafe = dailySafe[today] ?? true
         var current = 0
@@ -180,45 +248,63 @@ struct StreakView: View {
         isLoading = false
         print(current)
     }
-        
     
     var body: some View {
-       
-        
-        VStack {
-            if isLoading {
-                ProgressView("Fetching data...")
-            } else {
-                VStack(spacing : 12) {
-                    Text("You are on a \(streakCount) day streak!")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    Text("Best streak: \(bestStreak) days")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .padding()
-                        .foregroundStyle(.secondary)
-                    Text("You have not listened at 85dB or higher for > 30 minutes in \(streakCount) days.")
-                        .font(.body)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 16)
-                        .padding()
-                    Text(todayIsSafe ? "🟢 Limit not reached today" : "🔴 Limit reached today")
-                        .font(.headline)
-                    
-                    
-                    
-                    
+        NavigationView {
+            VStack {
+                if isLoading {
+                    ProgressView("Fetching data...")
+                } else {
+                    VStack(spacing: 12) {
+                        Text("You are on a \(streakCount) day streak!")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        Text("Best streak: \(bestStreak) days")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .padding()
+                            .foregroundStyle(.secondary)
+                        Text("You have not listened at 85dB or higher for > 30 minutes in \(streakCount) days.")
+                            .font(.body)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 16)
+                            .padding()
+                        Text(todayIsSafe ? "🟢 Limit not reached today" : "🔴 Limit reached today")
+                            .font(.headline)
+                    }
                 }
             }
-        }
-        .onAppear {
-            print("appear")
-            scheduleStreakNotification()
-            if UserDefaults.standard.object(forKey: "installDate") == nil {
-                UserDefaults.standard.set(Date(), forKey: "installDate")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        showingExportPrompt = true
+                    }) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
             }
-            requestPermission()
+            .alert("Export Data", isPresented: $showingExportPrompt) {
+                TextField("Last 4 digits of phone", text: $phoneLastFour)
+                    .keyboardType(.numberPad)
+                Button("Export") {
+                    exportData(phoneLastFour: phoneLastFour) { urls in
+                        exportURLs = urls
+                        showingShareSheet = true
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+            .sheet(isPresented: $showingShareSheet) {
+                ShareSheet(items: exportURLs)
+            }
+            .onAppear {
+                print("appear")
+                scheduleStreakNotification()
+                if UserDefaults.standard.object(forKey: "installDate") == nil {
+                    UserDefaults.standard.set(Date(), forKey: "installDate")
+                }
+                requestPermission()
+            }
         }
     }
 }
@@ -240,7 +326,31 @@ struct TestView: View {
     @State private var testComplete = false
     @State private var timer: Timer? = nil
     
-    
+    func saveTestResult() {
+        var leftDict: [String: Float] = [:]
+        var rightDict: [String: Float] = [:]
+        
+        for (freq, value) in rightEarResults {
+            leftDict[String(freq)] = value
+        }
+        for (freq, value) in results {
+            rightDict[String(freq)] = value
+        }
+        
+        let result = HearingTestResult(date: Date(), leftEar: leftDict, rightEar: rightDict)
+        
+        var saved: [HearingTestResult] = []
+        if let data = UserDefaults.standard.data(forKey: "hearingTestResults"),
+           let decoded = try? JSONDecoder().decode([HearingTestResult].self, from: data) {
+            saved = decoded
+        }
+        
+        saved.append(result)
+        
+        if let encoded = try? JSONEncoder().encode(saved) {
+            UserDefaults.standard.set(encoded, forKey: "hearingTestResults")
+        }
+    }
     
     func playTone(frequency: Double, volume: Float) {
         print("Playing \(frequency) Hz at volume \(volume) for \(currentEar) ear")
@@ -255,14 +365,12 @@ struct TestView: View {
         let leftChannel = buffer.floatChannelData![0]
         let rightChannel = buffer.floatChannelData![1]
         
-        // Fill the buffer first
         for frame in 0..<Int(frameCount) {
             let sample = sin(2.0 * Float.pi * Float(frequency) * Float(frame) / Float(sampleRate)) * volume
             leftChannel[frame] = currentEar == "left" ? sample : 0
             rightChannel[frame] = currentEar == "right" ? sample : 0
         }
         
-        // Then set up and start the engine once
         audioengine.attach(playerNode)
         audioengine.connect(playerNode, to: audioengine.mainMixerNode, format: format)
         try? audioengine.start()
@@ -273,10 +381,10 @@ struct TestView: View {
     
     func startTimer() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in DispatchQueue.main.async {
-            cantHearIt()
-        }
-            
+        timer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
+            DispatchQueue.main.async {
+                cantHearIt()
+            }
         }
     }
     
@@ -306,11 +414,10 @@ struct TestView: View {
         if frequencyIndex < frequencies.count - 1 {
             frequencyIndex += 1
             currentVolume = startingVolume(for: frequencies[frequencyIndex])
-                DispatchQueue.main.asyncAfter(deadline: .now() + Double.random(in: 2.0...5.0)) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double.random(in: 2.0...5.0)) {
                 guard !testComplete else { return }
                 playTone(frequency: frequencies[frequencyIndex], volume: currentVolume)
                 startTimer()
-                
             }
         } else {
             stopTone()
@@ -327,11 +434,12 @@ struct TestView: View {
                     startTimer()
                 }
             } else {
+                saveTestResult()
                 testComplete = true
-                
             }
         }
     }
+    
     func cantHearIt() {
         stopTone()
         currentVolume = min(currentVolume + 0.00001, 0.1)
@@ -339,6 +447,7 @@ struct TestView: View {
         startTimer()
         print("didnt hear")
     }
+    
     func interpret(_ volume: Float) -> String {
         switch volume {
         case ..<0.00005:
@@ -349,6 +458,7 @@ struct TestView: View {
             return "Significant loss"
         }
     }
+    
     var body: some View {
         VStack {
             if !testStarted {
@@ -434,7 +544,6 @@ struct TestView: View {
                         Text("Right")
                             .font(.title2)
                             .fontWeight(.bold)
-        
                         
                         Chart {
                             ForEach(frequencies, id: \.self) { freq in
@@ -472,7 +581,6 @@ struct TestView: View {
                                 .padding(.horizontal, 24)
                             }
                         }
-                        
                     }
                 }
                 Button("Retake Test") {
@@ -506,168 +614,177 @@ struct TestView: View {
         }
     }
 }
+
+struct DataView: View {
     
-    struct DataView: View {
+    private let healthStore = HKHealthStore()
+    
+    @State private var exposureData: [ExposurePoint] = []
+    @State private var selectedRange: TimeRange = .week
+    @State private var notificationCount = 3
+    @State private var isLoading = true
+    
+    func predicateForTimeRange() -> NSPredicate? {
+        let calendar = Calendar.current
+        let now = Date()
         
-        private let healthStore = HKHealthStore()
-        
-        @State private var exposureData: [ExposurePoint] = []
-        @State private var selectedRange: TimeRange = .week
-        @State private var notificationCount = 3
-        @State private var isLoading = true
-        
-        func predicateForTimeRange() -> NSPredicate? {
-            let calendar = Calendar.current
-            let now = Date()
-            
-            switch selectedRange {
-            case .today:
-                let start = calendar.startOfDay(for: now)
-                return HKQuery.predicateForSamples(withStart: start, end: now)
-            case .week:
-                let start = calendar.date(byAdding: .day, value: -7, to: now)!
-                return HKQuery.predicateForSamples(withStart: start, end: now)
-            case .month:
-                let start = calendar.date(byAdding: .month, value: -1, to: now)!
-                return HKQuery.predicateForSamples(withStart: start, end: now)
-            case .year:
-                let start = calendar.date(byAdding: .year, value: -1, to: now)!
-                return HKQuery.predicateForSamples(withStart: start, end: now)
-            case .all:
-                return nil
-            }
+        switch selectedRange {
+        case .today:
+            let start = calendar.startOfDay(for: now)
+            return HKQuery.predicateForSamples(withStart: start, end: now)
+        case .week:
+            let start = calendar.date(byAdding: .day, value: -7, to: now)!
+            return HKQuery.predicateForSamples(withStart: start, end: now)
+        case .month:
+            let start = calendar.date(byAdding: .month, value: -1, to: now)!
+            return HKQuery.predicateForSamples(withStart: start, end: now)
+        case .year:
+            let start = calendar.date(byAdding: .year, value: -1, to: now)!
+            return HKQuery.predicateForSamples(withStart: start, end: now)
+        case .all:
+            return nil
         }
+    }
+    
+    func requestPermission() {
+        guard let exposureType = HKObjectType.quantityType(forIdentifier: .headphoneAudioExposure) else { return }
         
-        func requestPermission() {
-            guard let exposureType = HKObjectType.quantityType(forIdentifier: .headphoneAudioExposure) else { return }
-            
-            healthStore.requestAuthorization(toShare: [], read: [exposureType]) { success, error in
-                if success {
-                    fetchExposureData()
-                }
-            }
-        }
-        
-        func fetchExposureData() {
-            guard let exposureType = HKObjectType.quantityType(forIdentifier: .headphoneAudioExposure) else { return }
-            
-            let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
-            
-            let query = HKSampleQuery(
-                sampleType: exposureType,
-                predicate: predicateForTimeRange(),
-                limit: HKObjectQueryNoLimit,
-                sortDescriptors: [sortDescriptor]
-            ) { _, samples, _ in
-                guard let samples = samples as? [HKQuantitySample] else { return }
-                
-                var points: [ExposurePoint] = []
-                var warnings = 0
-                
-                for sample in samples {
-                    let db = sample.quantity.doubleValue(for: .decibelAWeightedSoundPressureLevel())
-                    if db >= 85 {
-                        warnings += 1
-                    }
-                    points.append(ExposurePoint(date: sample.startDate, decibels: db, type: .average))
-                }
-                
-                DispatchQueue.main.async {
-                    let cleanedData = aggregatePerInterval(points)
-                    exposureData = cleanedData
-                    notificationCount = warnings
-                    isLoading = false
-                }
-            }
-            
-            healthStore.execute(query)
-        }
-        
-        func aggregatePerInterval(_ rawData: [ExposurePoint]) -> [ExposurePoint] {
-            var grouped: [Date: [Double]] = [:]
-            let calendar = Calendar.current
-            
-            for point in rawData {
-                let key: Date
-                switch selectedRange {
-                case .today:
-                    key = calendar.date(
-                        bySettingHour: calendar.component(.hour, from: point.date),
-                        minute: 0,
-                        second: 0,
-                        of: point.date
-                    )!
-                case .week, .month:
-                    key = calendar.startOfDay(for: point.date)
-                case .year, .all:
-                    let components = calendar.dateComponents([.year, .month], from: point.date)
-                    key = calendar.date(from: components)!
-                }
-                grouped[key, default: []].append(point.decibels)
-            }
-            
-            var result: [ExposurePoint] = []
-            for (date, values) in grouped {
-                let avg = values.reduce(0, +) / Double(values.count)
-                let max = values.max() ?? avg
-                result.append(ExposurePoint(date: date, decibels: avg, type: .average))
-                result.append(ExposurePoint(date: date, decibels: max, type: .max))
-            }
-            
-            return result.sorted { $0.date < $1.date }
-        }
-        
-        var body: some View {
-            VStack {
-                if isLoading {
-                    ProgressView("Fetching data...")
-                } else {
-                    Text("Average & Max dB Over Time")
-                        .font(.title)
-                        .fontWeight(.bold)
-                    
-                    Chart(exposureData) { point in
-                        LineMark(
-                            x: .value("Date", point.date),
-                            y: .value("dB", point.decibels)
-                        )
-                        .foregroundStyle(by: .value("Type", point.type == .average ? "Average" : "Max"))
-                    }
-                    .chartYAxisLabel("dB", position: .leading)
-                    .chartXAxisLabel("Date", position: .bottom)
-                    .chartYScale(domain: {
-                        let values = exposureData.map { $0.decibels }
-                        let min = (values.min() ?? 0) - 5
-                        let max = (values.max() ?? 100) + 5
-                        return min...max
-                    }())
-                    .chartForegroundStyleScale([
-                        "Average": Color.blue,
-                        "Max": Color.red
-                    ])
-                    .chartLegend(position: .top)
-                    .frame(height: 250)
-                    .padding(.horizontal, 16)
-                    
-                    Picker("Range", selection: $selectedRange) {
-                        ForEach(TimeRange.allCases, id: \.self) { range in
-                            Text(range.rawValue).tag(range)
-                        }
-                    }
-                    .pickerStyle(SegmentedPickerStyle())
-                    .padding()
-                    .onChange(of: selectedRange) { _ in
-                        isLoading = true
-                        fetchExposureData()
-                    }
-                    
-                    Text("Times over 85 dB: \(notificationCount)")
-                        .padding(.top)
-                }
-            }
-            .onAppear {
-                requestPermission()
+        healthStore.requestAuthorization(toShare: [], read: [exposureType]) { success, error in
+            if success {
+                fetchExposureData()
             }
         }
     }
+    
+    func fetchExposureData() {
+        guard let exposureType = HKObjectType.quantityType(forIdentifier: .headphoneAudioExposure) else { return }
+        
+        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+        
+        let query = HKSampleQuery(
+            sampleType: exposureType,
+            predicate: predicateForTimeRange(),
+            limit: HKObjectQueryNoLimit,
+            sortDescriptors: [sortDescriptor]
+        ) { _, samples, _ in
+            guard let samples = samples as? [HKQuantitySample] else { return }
+            
+            var points: [ExposurePoint] = []
+            var warnings = 0
+            
+            for sample in samples {
+                let db = sample.quantity.doubleValue(for: .decibelAWeightedSoundPressureLevel())
+                if db >= 85 {
+                    warnings += 1
+                }
+                points.append(ExposurePoint(date: sample.startDate, decibels: db, type: .average))
+            }
+            
+            DispatchQueue.main.async {
+                let cleanedData = aggregatePerInterval(points)
+                exposureData = cleanedData
+                notificationCount = warnings
+                isLoading = false
+            }
+        }
+        
+        healthStore.execute(query)
+    }
+    
+    func aggregatePerInterval(_ rawData: [ExposurePoint]) -> [ExposurePoint] {
+        var grouped: [Date: [Double]] = [:]
+        let calendar = Calendar.current
+        
+        for point in rawData {
+            let key: Date
+            switch selectedRange {
+            case .today:
+                key = calendar.date(
+                    bySettingHour: calendar.component(.hour, from: point.date),
+                    minute: 0,
+                    second: 0,
+                    of: point.date
+                )!
+            case .week, .month:
+                key = calendar.startOfDay(for: point.date)
+            case .year, .all:
+                let components = calendar.dateComponents([.year, .month], from: point.date)
+                key = calendar.date(from: components)!
+            }
+            grouped[key, default: []].append(point.decibels)
+        }
+        
+        var result: [ExposurePoint] = []
+        for (date, values) in grouped {
+            let avg = values.reduce(0, +) / Double(values.count)
+            let max = values.max() ?? avg
+            result.append(ExposurePoint(date: date, decibels: avg, type: .average))
+            result.append(ExposurePoint(date: date, decibels: max, type: .max))
+        }
+        
+        return result.sorted { $0.date < $1.date }
+    }
+    
+    var body: some View {
+        VStack {
+            if isLoading {
+                ProgressView("Fetching data...")
+            } else {
+                Text("Average & Max dB Over Time")
+                    .font(.title)
+                    .fontWeight(.bold)
+                
+                Chart(exposureData) { point in
+                    LineMark(
+                        x: .value("Date", point.date),
+                        y: .value("dB", point.decibels)
+                    )
+                    .foregroundStyle(by: .value("Type", point.type == .average ? "Average" : "Max"))
+                }
+                .chartYAxisLabel("dB", position: .leading)
+                .chartXAxisLabel("Date", position: .bottom)
+                .chartYScale(domain: {
+                    let values = exposureData.map { $0.decibels }
+                    let min = (values.min() ?? 0) - 5
+                    let max = (values.max() ?? 100) + 5
+                    return min...max
+                }())
+                .chartForegroundStyleScale([
+                    "Average": Color.blue,
+                    "Max": Color.red
+                ])
+                .chartLegend(position: .top)
+                .frame(height: 250)
+                .padding(.horizontal, 16)
+                
+                Picker("Range", selection: $selectedRange) {
+                    ForEach(TimeRange.allCases, id: \.self) { range in
+                        Text(range.rawValue).tag(range)
+                    }
+                }
+                .pickerStyle(SegmentedPickerStyle())
+                .padding()
+                .onChange(of: selectedRange) { _ in
+                    isLoading = true
+                    fetchExposureData()
+                }
+                
+                Text("Times over 85 dB: \(notificationCount)")
+                    .padding(.top)
+            }
+        }
+        .onAppear {
+            requestPermission()
+        }
+    }
+}
 
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
