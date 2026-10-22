@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		DF064610308A05E9005E6CA1 /* ProgressStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF06460F308A05E9005E6CA1 /* ProgressStore.swift */; };
+		DF064612308A077C005E6CA1 /* ProgressViewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF064611308A077C005E6CA1 /* ProgressViewScreen.swift */; };
 		DF46484D2E809D28007F9F20 /* MainApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF46484C2E809D28007F9F20 /* MainApp.swift */; };
 		DF46484F2E809D28007F9F20 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF46484E2E809D28007F9F20 /* ContentView.swift */; };
 		DF4648512E809D29007F9F20 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF4648502E809D29007F9F20 /* Assets.xcassets */; };
@@ -37,6 +38,7 @@
 
 /* Begin PBXFileReference section */
 		DF06460F308A05E9005E6CA1 /* ProgressStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressStore.swift; sourceTree = "<group>"; };
+		DF064611308A077C005E6CA1 /* ProgressViewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressViewScreen.swift; sourceTree = "<group>"; };
 		DF4648492E809D28007F9F20 /* Main.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Main.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF46484C2E809D28007F9F20 /* MainApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainApp.swift; sourceTree = "<group>"; };
 		DF46484E2E809D28007F9F20 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -104,6 +106,7 @@
 				DF06460F308A05E9005E6CA1 /* ProgressStore.swift */,
 				DF46484C2E809D28007F9F20 /* MainApp.swift */,
 				DF46484E2E809D28007F9F20 /* ContentView.swift */,
+				DF064611308A077C005E6CA1 /* ProgressViewScreen.swift */,
 				DF4648502E809D29007F9F20 /* Assets.xcassets */,
 				DF4648522E809D29007F9F20 /* Preview Content */,
 			);
@@ -268,6 +271,7 @@
 				DF064610308A05E9005E6CA1 /* ProgressStore.swift in Sources */,
 				DF46484F2E809D28007F9F20 /* ContentView.swift in Sources */,
 				DFA548FB3089ED5700E0FA6C /* ChallengeResult.swift in Sources */,
+				DF064612308A077C005E6CA1 /* ProgressViewScreen.swift in Sources */,
 				DF46484D2E809D28007F9F20 /* MainApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
