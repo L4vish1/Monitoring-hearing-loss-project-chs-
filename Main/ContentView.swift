@@ -1,7 +1,7 @@
 //
 //  ContentView.swift
 //  Main
-//
+//  Hiiiiiii Its the GALP LEO GALP, GEHEHEHEHEHEHEHE
 //  Created by av3ry on 9/21/25.
 //
 
