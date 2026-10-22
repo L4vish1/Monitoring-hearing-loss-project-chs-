@@ -48,6 +48,12 @@ struct HearingTestResult: Codable {
 struct ContentView: View {
     var body: some View {
         TabView {
+            //NEW 10/22/26 LEO
+            ProgressViewScreen()
+                .tabItem {
+                    Image(systemName: "star.circle.fill")
+                    Text("Progress")
+                }
             StreakView()
                 .tabItem {
                     Image(systemName: "chart.bar")
