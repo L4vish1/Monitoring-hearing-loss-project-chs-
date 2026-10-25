@@ -59,11 +59,13 @@ struct ContentView: View {
                     Image(systemName: "chart.bar")
                     Text("Streak")
                 }
-            TestView()
+//Changed by leo for fit the pitch challenge view 10/24/2026
+            PitchChallengeView()
                 .tabItem {
                     Image(systemName: "headphones")
-                    Text("Test")
+                    Text("Challenge")
                 }
+
             DataView()
                 .tabItem {
                     Image(systemName: "heart")
