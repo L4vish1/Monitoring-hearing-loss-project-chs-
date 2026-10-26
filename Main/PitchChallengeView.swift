@@ -126,6 +126,7 @@ final class PitchTonePlayer {
 
 
 // MARK: - Pitch Challenge
+// Uses the shared card(), Color.brand and PressableStyle helpers from SharedUI.swift.
 
 struct PitchChallengeView: View {
 
@@ -152,126 +153,185 @@ struct PitchChallengeView: View {
     // Show feedback after an answer.
     @State private var feedback = ""
 
+    // Whether the last answer was right (only used for coloring the feedback).
+    @State private var lastAnswerCorrect = false
+
+    // Randomizes the very first question once. Without this, question 1
+    // was always 440 vs 660, so the answer was always Sound B.
+    @State private var firstQuestionReady = false
+
+    private let totalQuestions = 5
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 22) {
-
-                Text("Pitch Challenge")
-                    .font(.title)
-                    .bold()
-
-                if challengeFinished {
-
-                    // MARK: - Results Screen
-
-                    Text("Challenge Complete!")
-                        .font(.title2)
-                        .bold()
-
-                    Text("\(score) / 5 Correct")
-                        .font(.largeTitle)
-
-                    Text("+\(score * 10) XP")
-                        .foregroundStyle(.blue)
-                        .font(.title2)
-                        .bold()
-
-                    Button("Play Again!") {
-                        restartChallenge()
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                } else {
-
-                    // MARK: - Question Screen
-
-                    Text("Question \(questionNumber) of 5")
-                        .font(.headline)
-
-                    Text("Which sound has a higher pitch?")
-                        .font(.title3)
-                        .multilineTextAlignment(.center)
-
-                    HStack(spacing: 20) {
-
-                        Button {
-                            tonePlayer.play(
-                                frequency: frequencyA
-                            )
-                        } label: {
-                            Label(
-                                "Sound A",
-                                systemImage: "speaker.wave.2"
-                            )
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Button {
-                            tonePlayer.play(
-                                frequency: frequencyB
-                            )
-                        } label: {
-                            Label(
-                                "Sound B",
-                                systemImage: "speaker.wave.2"
-                            )
-                        }
-                        .buttonStyle(.borderedProminent)
+            ScrollView {
+                VStack(spacing: 16) {
+                    if challengeFinished {
+                        resultsCard
+                    } else {
+                        questionCard
                     }
 
-                    Text("Listen to both sounds, then choose the correct answer.")
-                        .font(.caption)
+                    Text("Use a comfortable listening volume. This is a listening game, not a medical hearing test.")
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
-
-                    // MARK: - Answer Buttons
-
-                    HStack(spacing: 20) {
-
-                        Button("Sound A") {
-                            checkAnswer(choseA: true)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(answered)
-
-                        Button("Sound B") {
-                            checkAnswer(choseA: false)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(answered)
-                    }
-
-                    if answered {
-                        Text(feedback)
-                            .font(.headline)
-
-                        Button(
-                            questionNumber == 5
-                                ? "Finish Challenge"
-                                : "Next Question"
-                        ) {
-                            nextQuestion()
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
+                        .padding(.horizontal, 4)
                 }
-
-                Spacer()
-
-                Text(
-                    "Use a comfortable listening volume. "
-                    + "This is a listening game, not a medical hearing test."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                .padding()
             }
-            .padding()
-            .navigationTitle("HearQuest")
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Pitch Challenge")
+            .onAppear {
+                if !firstQuestionReady {
+                    generateQuestion()
+                    firstQuestionReady = true
+                }
+            }
             .onDisappear {
                 // Stop audio when leaving the screen.
                 tonePlayer.stop()
             }
         }
+    }
+
+    // MARK: - Question Card
+
+    private var questionCard: some View {
+        VStack(alignment: .leading, spacing: 18) {
+
+            // Progress through the 5 questions.
+            HStack {
+                Text("Question \(questionNumber) of \(totalQuestions)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Spacer()
+                HStack(spacing: 6) {
+                    ForEach(1...totalQuestions, id: \.self) { n in
+                        Capsule()
+                            .fill(n <= questionNumber ? Color.brand : Color(.systemGray5))
+                            .frame(width: 18, height: 6)
+                    }
+                }
+            }
+
+            Text("Which sound has a higher pitch?")
+                .font(.system(.title3, design: .rounded).weight(.semibold))
+
+            // Listen buttons
+            HStack(spacing: 12) {
+                listenTile(label: "A", frequency: frequencyA)
+                listenTile(label: "B", frequency: frequencyB)
+            }
+
+            Divider()
+
+            // Answer buttons
+            Text("Your answer")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                Button {
+                    checkAnswer(choseA: true)
+                } label: {
+                    Text("Sound A")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(answered)
+
+                Button {
+                    checkAnswer(choseA: false)
+                } label: {
+                    Text("Sound B")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(answered)
+            }
+
+            if answered {
+                HStack(spacing: 8) {
+                    Image(systemName: lastAnswerCorrect ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    Text(feedback)
+                }
+                .font(.headline)
+                .foregroundStyle(lastAnswerCorrect ? Color.brand : Color.red)
+
+                Button {
+                    nextQuestion()
+                } label: {
+                    Text(questionNumber == totalQuestions ? "Finish Challenge" : "Next Question")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
+        }
+        .card()
+    }
+
+    private func listenTile(label: String, frequency: Double) -> some View {
+        Button {
+            tonePlayer.play(frequency: frequency)
+        } label: {
+            VStack(spacing: 10) {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.title2)
+                Text("Sound \(label)")
+                    .font(.system(.headline, design: .rounded))
+                Text("Tap to play")
+                    .font(.caption)
+                    .opacity(0.8)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 22)
+            .background(Color.brand, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(PressableStyle())
+    }
+
+    // MARK: - Results Card
+
+    private var resultsCard: some View {
+        VStack(spacing: 10) {
+            Text("Challenge complete")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("\(score)")
+                    .font(.system(size: 64, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                Text("/ \(totalQuestions)")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("+\(score * 10) XP")
+                .font(.system(.title3, design: .rounded).weight(.semibold))
+                .foregroundStyle(Color.brand)
+
+            Button {
+                restartChallenge()
+            } label: {
+                Text("Play Again")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.top, 10)
+        }
+        .frame(maxWidth: .infinity)
+        .card()
     }
 
     // MARK: - Answer Checking
@@ -287,8 +347,10 @@ struct PitchChallengeView: View {
         if choseA == aIsHigher {
             score += 1
             feedback = "Correct!"
+            lastAnswerCorrect = true
         } else {
             feedback = "Incorrect, try the next one"
+            lastAnswerCorrect = false
         }
 
         answered = true
@@ -299,7 +361,7 @@ struct PitchChallengeView: View {
     private func nextQuestion() {
         guard answered else { return }
 
-        if questionNumber == 5 {
+        if questionNumber == totalQuestions {
             // Save the result exactly once.
             progress.completeChallenge(
                 correctAnswers: score

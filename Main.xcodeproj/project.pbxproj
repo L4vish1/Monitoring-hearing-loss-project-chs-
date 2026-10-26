@@ -82,6 +82,13 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		8F19AC68308F12B900DF7388 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		DF4648402E809D28007F9F20 = {
 			isa = PBXGroup;
 			children = (
@@ -89,6 +96,7 @@
 				DF46485C2E809D2A007F9F20 /* MainTests */,
 				DF4648662E809D2A007F9F20 /* MainUITests */,
 				DF46484A2E809D28007F9F20 /* Products */,
+				8F19AC68308F12B900DF7388 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -112,6 +120,7 @@
 				DF46484C2E809D28007F9F20 /* MainApp.swift */,
 				DF46484E2E809D28007F9F20 /* ContentView.swift */,
 				DF064611308A077C005E6CA1 /* ProgressViewScreen.swift */,
+				DF064613308DCED9005E6CA1 /* PitchChallengeView.swift */,
 				DF4648502E809D29007F9F20 /* Assets.xcassets */,
 				DF4648522E809D29007F9F20 /* Preview Content */,
 			);

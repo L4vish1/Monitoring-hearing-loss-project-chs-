@@ -6,7 +6,7 @@
 // simplifed 10/23/26
 
 import SwiftUI
-
+import Charts
 // This screen displays the user's HearQuest progress + reads saved scores, XP, and streaks from ProgressStore.
 // Uses the shared card(), StatCard and Color.brand helpers defined in SharedUI.swift.
 struct ProgressViewScreen: View {

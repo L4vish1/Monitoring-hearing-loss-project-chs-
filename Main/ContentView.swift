@@ -12,7 +12,7 @@ import HealthKit
 import Charts
 import AVFoundation
 import UserNotifications
-
+import Charts
 
 struct ExposurePoint: Identifiable {
     let id = UUID()
@@ -55,6 +55,8 @@ struct ContentView: View {
             //NEW 10/22/26 LEO
             ProgressViewScreen()
                 .tabItem { Label("Progress", systemImage: "star.circle.fill") }
+            PitchChallengeView()
+                .tabItem { Label("Challenge", systemImage: "music.note") }
             StreakView()
                 .tabItem { Label("Streak", systemImage: "flame") }
             TestView()
