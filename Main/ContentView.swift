@@ -45,33 +45,28 @@ struct HearingTestResult: Codable {
     let rightEar: [String: Float]
 }
 
+// Shared UI helpers (DayStatus, Color.brand, card(), StatCard, PressableStyle) live in SharedUI.swift.
+
+// MARK: - Tabs
+
 struct ContentView: View {
     var body: some View {
         TabView {
             //NEW 10/22/26 LEO
             ProgressViewScreen()
-                .tabItem {
-                    Image(systemName: "star.circle.fill")
-                    Text("Progress")
-                }
+                .tabItem { Label("Progress", systemImage: "star.circle.fill") }
             StreakView()
-                .tabItem {
-                    Image(systemName: "chart.bar")
-                    Text("Streak")
-                }
+                .tabItem { Label("Streak", systemImage: "flame") }
             TestView()
-                .tabItem {
-                    Image(systemName: "headphones")
-                    Text("Test")
-                }
+                .tabItem { Label("Test", systemImage: "ear") }
             DataView()
-                .tabItem {
-                    Image(systemName: "heart")
-                    Text("Data")
-                }
+                .tabItem { Label("Data", systemImage: "chart.xyaxis.line") }
         }
+        .tint(.brand)
     }
 }
+
+// MARK: - Streak
 
 struct StreakView: View {
     
@@ -83,18 +78,21 @@ struct StreakView: View {
     @State private var todayIsSafe = false
     @State private var exposureSamples: [ExposureSample] = []
     private let threshold = 85.0
+    private let dailyLimitSeconds = 1800.0
     @State private var showingExportPrompt = false
     @State private var phoneLastFour = ""
     @State private var exportURLs: [URL] = []
     @State private var showingShareSheet = false
+    @State private var todayLoudSeconds: Double = 0
+    @State private var lastSevenDays: [DayStatus] = []
     
     func requestPermission() {
         guard let exposureType = HKObjectType.quantityType(forIdentifier: .headphoneAudioExposure) else { return }
         
-        healthStore.requestAuthorization(toShare: [], read: [exposureType]) { success, error in
-            if success {
-                fetchStreakData()
-            }
+        // `success` only means the prompt was handled, not that access was granted,
+        // so always fetch. A denied user simply gets an empty result.
+        healthStore.requestAuthorization(toShare: [], read: [exposureType]) { _, _ in
+            fetchStreakData()
         }
     }
     
@@ -113,7 +111,7 @@ struct StreakView: View {
             limit: HKObjectQueryNoLimit,
             sortDescriptors: [sortDescriptor]
         ) { _, samples, _ in
-            guard let samples = samples as? [HKQuantitySample] else { return }
+            let samples = (samples as? [HKQuantitySample]) ?? []
             
             let formatter = DateFormatter()
             formatter.dateStyle = .short
@@ -199,7 +197,8 @@ struct StreakView: View {
             limit: HKObjectQueryNoLimit,
             sortDescriptors: [sortDescriptor]
         ) { _, samples, _ in
-            guard let samples = samples as? [HKQuantitySample] else { return }
+            // Empty on error or no data, so loading always finishes.
+            let samples = (samples as? [HKQuantitySample]) ?? []
             
             var newSamples: [ExposureSample] = []
             for sample in samples {
@@ -232,9 +231,14 @@ struct StreakView: View {
         }
         var dailySafe: [Date: Bool] = [:]
         for (day, seconds) in dailyLoudSeconds {
-            dailySafe[day] = seconds < 1800
+            dailySafe[day] = seconds < dailyLimitSeconds
         }
         todayIsSafe = dailySafe[today] ?? true
+        todayLoudSeconds = dailyLoudSeconds[today] ?? 0
+        lastSevenDays = (0..<7).reversed().compactMap { offset in
+            guard let day = calendar.date(byAdding: .day, value: -offset, to: today) else { return nil }
+            return DayStatus(date: day, safe: dailySafe[day] ?? true, beforeInstall: day < installDay)
+        }
         var current = 0
         var checking = today
         
@@ -257,38 +261,98 @@ struct StreakView: View {
         print(current)
     }
     
+    private var limitMinutes: Int { Int(dailyLimitSeconds / 60) }
+    
     var body: some View {
-        NavigationView {
-            VStack {
+        NavigationStack {
+            ScrollView {
                 if isLoading {
                     ProgressView("Fetching data...")
+                        .padding(.top, 80)
                 } else {
-                    VStack(spacing: 12) {
-                        Text("You are on a \(streakCount) day streak!")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        Text("Best streak: \(bestStreak) days")
-                            .font(.title3)
-                            .fontWeight(.bold)
-                            .padding()
+                    VStack(spacing: 16) {
+                        VStack(spacing: 14) {
+                            ZStack {
+                                Circle()
+                                    .stroke(Color.brand.opacity(0.15), lineWidth: 18)
+                                Circle()
+                                    .trim(from: 0, to: min(todayLoudSeconds / dailyLimitSeconds, 1))
+                                    .stroke(todayIsSafe ? Color.brand : Color.red,
+                                            style: StrokeStyle(lineWidth: 18, lineCap: .round))
+                                    .rotationEffect(.degrees(-90))
+                                    .animation(.easeOut(duration: 0.8), value: todayLoudSeconds)
+                                VStack(spacing: 0) {
+                                    Text("\(streakCount)")
+                                        .font(.system(size: 60, weight: .bold, design: .rounded))
+                                        .monospacedDigit()
+                                    Text("day streak")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(width: 200, height: 200)
+                            .padding(.top, 8)
+                            
+                            Text(todayIsSafe
+                                 ? "\(Int(todayLoudSeconds / 60)) of \(limitMinutes) loud minutes used today"
+                                 : "Over today's \(limitMinutes) minute limit")
+                                .font(.subheadline)
+                                .foregroundStyle(todayIsSafe ? Color.secondary : Color.red)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .card()
+                        
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Last 7 days")
+                                .font(.headline)
+                            HStack {
+                                ForEach(lastSevenDays) { day in
+                                    VStack(spacing: 6) {
+                                        Text(day.date.formatted(.dateTime.weekday(.narrow)))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Circle()
+                                            .fill(day.beforeInstall ? Color(.systemGray5)
+                                                  : day.safe ? Color.brand : Color.red.opacity(0.85))
+                                            .frame(width: 30, height: 30)
+                                            .overlay {
+                                                if !day.beforeInstall {
+                                                    Image(systemName: day.safe ? "checkmark" : "xmark")
+                                                        .font(.caption.weight(.bold))
+                                                        .foregroundStyle(.white)
+                                                }
+                                            }
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                }
+                            }
+                        }
+                        .card()
+                        
+                        HStack(spacing: 16) {
+                            StatCard(title: "Best streak", value: "\(bestStreak)",
+                                     unit: bestStreak == 1 ? "day" : "days")
+                            StatCard(title: "Daily limit", value: "\(limitMinutes)", unit: "min")
+                        }
+                        
+                        Text("A day counts toward your streak when you spend less than \(limitMinutes) minutes listening at \(Int(threshold)) dB or louder.")
+                            .font(.footnote)
                             .foregroundStyle(.secondary)
-                        Text("You have not listened at 85dB or higher for > 30 minutes in \(streakCount) days.")
-                            .font(.body)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 16)
-                            .padding()
-                        Text(todayIsSafe ? "🟢 Limit not reached today" : "🔴 Limit reached today")
-                            .font(.headline)
+                            .padding(.horizontal, 4)
                     }
+                    .padding()
                 }
             }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Streak")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
+                    Button {
                         showingExportPrompt = true
-                    }) {
+                    } label: {
                         Image(systemName: "square.and.arrow.up")
                     }
+                    .accessibilityLabel("Export data")
                 }
             }
             .alert("Export Data", isPresented: $showingExportPrompt) {
@@ -301,6 +365,8 @@ struct StreakView: View {
                     }
                 }
                 Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Exports the last four months of listening levels and your hearing test results as CSV files.")
             }
             .sheet(isPresented: $showingShareSheet) {
                 ShareSheet(items: exportURLs)
@@ -317,12 +383,15 @@ struct StreakView: View {
     }
 }
 
+// MARK: - Hearing test
+
 struct TestView: View {
     @State private var currentFrequency: Double = 1000.0
     @State private var currentVolume: Float = 0.5
     @State private var isPlaying = false
     @State private var testStarted = false
     @State private var currentEar: String = "left"
+    // Note: despite the name, this holds the LEFT ear results once the left ear finishes.
     @State private var rightEarResults: [Double: Float] = [:]
     
     let frequencies: [Double] = [250, 500, 1000, 2000, 4000, 8000]
@@ -467,161 +536,212 @@ struct TestView: View {
         }
     }
     
+    // MARK: UI helpers (no change to test logic)
+    
+    private var overallProgress: Double {
+        let earOffset = currentEar == "left" ? 0 : frequencies.count
+        return Double(earOffset + frequencyIndex) / Double(frequencies.count * 2)
+    }
+    
+    func color(for volume: Float) -> Color {
+        volume < 0.00005 ? .green : volume < 0.0001 ? .orange : .red
+    }
+    
+    // Same code as the original "Begin Test" button.
+    func startTest() {
+        testStarted = true
+        frequencyIndex = 0
+        currentVolume = startingVolume(for: frequencies[0])
+        playTone(frequency: frequencies[0], volume: currentVolume)
+        startTimer()
+    }
+    
+    // Same code as the original "Retake Test" button.
+    func resetTest() {
+        testStarted = false
+        testComplete = false
+        frequencyIndex = 0
+        currentVolume = startingVolume(for: frequencies[0])
+        currentEar = "left"
+        results = [:]
+        rightEarResults = [:]
+        stopTone()
+        timer?.invalidate()
+        timer = nil
+    }
+    
     var body: some View {
-        VStack {
-            if !testStarted {
-                Text("Test")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-                Text("Please put your headphones in and set your volume to maximum before starting.")
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 8)
-                    .padding(.bottom, 10)
-                Button("Begin Test") {
-                    testStarted = true
-                    frequencyIndex = 0
-                    currentVolume = startingVolume(for: frequencies[0])
-                    playTone(frequency: frequencies[0], volume: currentVolume)
-                    startTimer()
+        NavigationStack {
+            Group {
+                if !testStarted {
+                    introView
+                } else if testComplete {
+                    resultsView
+                } else {
+                    inProgressView
                 }
-                .font(.headline)
-                .padding()
-                .background(Color.green)
-                .foregroundColor(.white)
-                .cornerRadius(12)
-                Text("THIS TEST IS NOT MEDICALLY PROVEN NOR ACCURATE. IT IS A SUBJECTIVE MEASUREMENT AND MAY BE SKEWED BY HEADPHONE OR PHONE BRAND, MODEL, ETC. TALK TO A LICENSED MEDICAL PROFESSIONAL IF YOU ARE CONCERNED ABOUT YOUR HEARING.")
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 10)
-                    .font(.title3)
-                    .fontWeight(.bold)
-                    .foregroundStyle(.red)
+            }
+            .navigationTitle("Hearing Test")
+            .navigationBarTitleDisplayMode(testStarted && !testComplete ? .inline : .large)
+        }
+    }
+    
+    private var introView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Check how well you hear quiet tones at six pitches in each ear.")
+                    .foregroundStyle(.secondary)
                 
-            } else if testComplete {
-                ScrollView {
-                    VStack(spacing: 16) {
-                        Text("Results")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                        
-                        Text("Left")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        
-                        Chart {
-                            ForEach(frequencies, id: \.self) { freq in
-                                if let volume = rightEarResults[freq] {
-                                    BarMark(
-                                        x: .value("Frequency", "\(Int(freq)) Hz"),
-                                        y: .value("Volume", Double(volume))
-                                    )
-                                    .foregroundStyle(
-                                        volume < 0.00005 ? Color.green :
-                                        volume < 0.0001 ? Color.yellow :
-                                        Color.red
-                                    )
-                                }
-                            }
-                        }
-                        .chartYAxis(.hidden)
-                        .chartYScale(domain: 0...0.0002)
-                        .frame(height: 200)
-                        .padding(.horizontal, 16)
-                        
-                        ForEach(frequencies, id: \.self) { freq in
-                            if let volume = rightEarResults[freq] {
-                                HStack {
-                                    Text("\(Int(freq)) Hz:")
-                                        .fontWeight(.bold)
-                                    Spacer()
-                                    Text(interpret(volume))
-                                        .foregroundStyle(
-                                            volume < 0.00005 ? Color.green :
-                                            volume < 0.0001 ? Color.yellow :
-                                            Color.red
-                                        )
-                                }
-                                .padding(.horizontal, 24)
-                            }
-                        }
-                        
-                        Divider()
-                            .padding(.vertical, 8)
-                        
-                        Text("Right")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        
-                        Chart {
-                            ForEach(frequencies, id: \.self) { freq in
-                                if let volume = results[freq] {
-                                    BarMark(
-                                        x: .value("Frequency", "\(Int(freq)) Hz"),
-                                        y: .value("Volume", Double(volume))
-                                    )
-                                    .foregroundStyle(
-                                        volume < 0.00005 ? Color.green :
-                                        volume < 0.0001 ? Color.yellow :
-                                        Color.red
-                                    )
-                                }
-                            }
-                        }
-                        .chartYAxis(.hidden)
-                        .chartYScale(domain: 0...0.0002)
-                        .frame(height: 200)
-                        .padding(.horizontal, 16)
-                        
-                        ForEach(frequencies, id: \.self) { freq in
-                            if let volume = results[freq] {
-                                HStack {
-                                    Text("\(Int(freq)) Hz:")
-                                        .fontWeight(.bold)
-                                    Spacer()
-                                    Text(interpret(volume))
-                                        .foregroundStyle(
-                                            volume < 0.00005 ? Color.green :
-                                            volume < 0.0001 ? Color.yellow :
-                                            Color.red
-                                        )
-                                }
-                                .padding(.horizontal, 24)
-                            }
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 18) {
+                    stepRow(icon: "headphones", title: "Put on headphones", detail: "Find a quiet room first.")
+                    stepRow(icon: "speaker.wave.3.fill", title: "Turn volume all the way up", detail: "The tones start very quietly.")
+                    stepRow(icon: "hand.tap.fill", title: "Tap when you hear a tone", detail: "Even if it's faint.")
                 }
-                Button("Retake Test") {
-                    testStarted = false
-                    testComplete = false
-                    frequencyIndex = 0
-                    currentVolume = startingVolume(for: frequencies[0])
-                    currentEar = "left"
-                    results = [:]
-                    rightEarResults = [:]
-                    stopTone()
-                    timer?.invalidate()
-                    timer = nil
-                }
-                .font(.headline)
-                .padding()
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(12)
-                .padding(.bottom, 16)
-            } else {
-                Button("I heard it") {
-                    heardIt()
-                }
-                .font(.headline)
-                .padding()
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(12)
+                .card()
+                
+                Text("This is not a medical hearing test. Results depend on your headphones and device and should not be used for diagnosis. If you're concerned about your hearing, talk to a licensed audiologist or doctor.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+            }
+            .padding()
+        }
+        .background(Color(.systemGroupedBackground))
+        .safeAreaInset(edge: .bottom) {
+            Button(action: startTest) {
+                Text("Begin Test")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding()
+            .background(Color(.systemGroupedBackground))
+        }
+    }
+    
+    private func stepRow(icon: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(Color.brand)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.body.weight(.semibold))
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
         }
     }
+    
+    // Deliberately no animation tied to isPlaying: a visual cue would let users see the tone.
+    private var inProgressView: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 6) {
+                Text(currentEar == "left" ? "Left ear" : "Right ear")
+                    .font(.system(.title2, design: .rounded).weight(.semibold))
+                Text("Tone \(frequencyIndex + 1) of \(frequencies.count)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .padding(.top, 24)
+            
+            ProgressView(value: overallProgress)
+                .padding(.horizontal, 48)
+            
+            Spacer()
+            
+            Button(action: heardIt) {
+                Text("I heard it")
+                    .font(.system(.title3, design: .rounded).weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 200, height: 200)
+                    .background(Circle().fill(Color.brand))
+                    .background(Circle().fill(Color.brand.opacity(0.12)).padding(-22))
+            }
+            .buttonStyle(PressableStyle())
+            
+            Text("Tones may be very quiet. Tap as soon as you hear one.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+                .padding(.top, 12)
+            
+            Spacer()
+            
+            Button("Cancel Test", role: .destructive, action: resetTest)
+                .padding(.bottom, 16)
+        }
+    }
+    
+    private var resultsView: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                earCard(title: "Left ear", data: rightEarResults)
+                earCard(title: "Right ear", data: results)
+            }
+            .padding()
+        }
+        .background(Color(.systemGroupedBackground))
+        .safeAreaInset(edge: .bottom) {
+            Button(action: resetTest) {
+                Text("Retake Test")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .padding()
+            .background(Color(.systemGroupedBackground))
+        }
+    }
+    
+    private func earCard(title: String, data: [Double: Float]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+            
+            Chart {
+                ForEach(frequencies, id: \.self) { freq in
+                    if let volume = data[freq] {
+                        BarMark(
+                            x: .value("Frequency", freq >= 1000 ? "\(Int(freq / 1000))k" : "\(Int(freq))"),
+                            y: .value("Volume", Double(volume))
+                        )
+                        .foregroundStyle(color(for: volume))
+                        .cornerRadius(5)
+                    }
+                }
+            }
+            .chartYAxis(.hidden)
+            .chartYScale(domain: 0...0.0002)
+            .frame(height: 140)
+            
+            Divider()
+            
+            ForEach(frequencies, id: \.self) { freq in
+                if let volume = data[freq] {
+                    HStack {
+                        Text("\(Int(freq)) Hz")
+                            .monospacedDigit()
+                        Spacer()
+                        Text(interpret(volume))
+                            .fontWeight(.medium)
+                            .foregroundStyle(color(for: volume))
+                    }
+                    .font(.subheadline)
+                }
+            }
+        }
+        .card()
+    }
 }
+
+// MARK: - Data
 
 struct DataView: View {
     
@@ -629,8 +749,17 @@ struct DataView: View {
     
     @State private var exposureData: [ExposurePoint] = []
     @State private var selectedRange: TimeRange = .week
-    @State private var notificationCount = 3
+    @State private var notificationCount = 0
     @State private var isLoading = true
+    
+    private var averageLevel: Double? {
+        let values = exposureData.filter { $0.type == .average }.map(\.decibels)
+        return values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+    }
+    
+    private var peakLevel: Double? {
+        exposureData.filter { $0.type == .max }.map(\.decibels).max()
+    }
     
     func predicateForTimeRange() -> NSPredicate? {
         let calendar = Calendar.current
@@ -657,10 +786,8 @@ struct DataView: View {
     func requestPermission() {
         guard let exposureType = HKObjectType.quantityType(forIdentifier: .headphoneAudioExposure) else { return }
         
-        healthStore.requestAuthorization(toShare: [], read: [exposureType]) { success, error in
-            if success {
-                fetchExposureData()
-            }
+        healthStore.requestAuthorization(toShare: [], read: [exposureType]) { _, _ in
+            fetchExposureData()
         }
     }
     
@@ -675,7 +802,8 @@ struct DataView: View {
             limit: HKObjectQueryNoLimit,
             sortDescriptors: [sortDescriptor]
         ) { _, samples, _ in
-            guard let samples = samples as? [HKQuantitySample] else { return }
+            // Empty on error or no data, so loading always finishes.
+            let samples = (samples as? [HKQuantitySample]) ?? []
             
             var points: [ExposurePoint] = []
             var warnings = 0
@@ -734,56 +862,83 @@ struct DataView: View {
     }
     
     var body: some View {
-        VStack {
-            if isLoading {
-                ProgressView("Fetching data...")
-            } else {
-                Text("Average & Max dB Over Time")
-                    .font(.title)
-                    .fontWeight(.bold)
-                
-                Chart(exposureData) { point in
-                    LineMark(
-                        x: .value("Date", point.date),
-                        y: .value("dB", point.decibels)
-                    )
-                    .foregroundStyle(by: .value("Type", point.type == .average ? "Average" : "Max"))
-                }
-                .chartYAxisLabel("dB", position: .leading)
-                .chartXAxisLabel("Date", position: .bottom)
-                .chartYScale(domain: {
-                    let values = exposureData.map { $0.decibels }
-                    let min = (values.min() ?? 0) - 5
-                    let max = (values.max() ?? 100) + 5
-                    return min...max
-                }())
-                .chartForegroundStyleScale([
-                    "Average": Color.blue,
-                    "Max": Color.red
-                ])
-                .chartLegend(position: .top)
-                .frame(height: 250)
-                .padding(.horizontal, 16)
-                
-                Picker("Range", selection: $selectedRange) {
-                    ForEach(TimeRange.allCases, id: \.self) { range in
-                        Text(range.rawValue).tag(range)
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    Picker("Range", selection: $selectedRange) {
+                        ForEach(TimeRange.allCases, id: \.self) { range in
+                            Text(range.rawValue).tag(range)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Headphone levels")
+                            .font(.headline)
+                        ZStack {
+                            if exposureData.isEmpty && !isLoading {
+                                Text("No listening data for this range.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                chart.opacity(isLoading ? 0.3 : 1)
+                            }
+                            if isLoading {
+                                ProgressView("Fetching data...")
+                            }
+                        }
+                        .frame(height: 220)
+                    }
+                    .card()
+                    
+                    HStack(spacing: 12) {
+                        StatCard(title: "Average",
+                                 value: isLoading ? "-" : averageLevel.map { "\(Int($0.rounded()))" } ?? "-",
+                                 unit: "dB")
+                        StatCard(title: "Peak",
+                                 value: isLoading ? "-" : peakLevel.map { "\(Int($0.rounded()))" } ?? "-",
+                                 unit: "dB")
+                        StatCard(title: "Over 85",
+                                 value: isLoading ? "-" : "\(notificationCount)")
                     }
                 }
-                .pickerStyle(SegmentedPickerStyle())
                 .padding()
-                .onChange(of: selectedRange) { _ in
-                    isLoading = true
-                    fetchExposureData()
-                }
-                
-                Text("Times over 85 dB: \(notificationCount)")
-                    .padding(.top)
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Data")
+            .onChange(of: selectedRange) { _ in
+                isLoading = true
+                fetchExposureData()
+            }
+            .onAppear {
+                requestPermission()
             }
         }
-        .onAppear {
-            requestPermission()
+    }
+    
+    private var chart: some View {
+        Chart(exposureData) { point in
+            LineMark(
+                x: .value("Date", point.date),
+                y: .value("dB", point.decibels)
+            )
+            .foregroundStyle(by: .value("Type", point.type == .average ? "Average" : "Max"))
+            .interpolationMethod(.monotone)
+            .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            
+            RuleMark(y: .value("Limit", 85))
+                .foregroundStyle(Color.gray.opacity(0.5))
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
         }
+        .chartYAxisLabel("dB")
+        .chartYScale(domain: {
+            let values = exposureData.map { $0.decibels } + [85]
+            let min = (values.min() ?? 0) - 5
+            let max = (values.max() ?? 100) + 5
+            return min...max
+        }())
+        .chartForegroundStyleScale(["Average": Color.brand, "Max": Color.orange])
+        .chartLegend(position: .top, alignment: .leading)
     }
 }
 

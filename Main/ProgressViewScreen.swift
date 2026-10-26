@@ -10,62 +10,57 @@ import SwiftUI
 import Charts
 
 // This screen displays the user's HearQuest progress + reads saved scores, XP, and streaks from ProgressStore.
+// Uses the shared card(), StatCard and Color.brand helpers defined in SharedUI.swift.
 struct ProgressViewScreen: View {
 
     // Gives this screen access to the shared progress data.
     @EnvironmentObject var progress: ProgressStore
 
+    // True once the user has finished at least one challenge.
+    private var hasResults: Bool { !progress.results.isEmpty }
+
     var body: some View {
 
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
+                VStack(spacing: 16) {
 
-                    // MARK: - Screen Title
+                    // MARK: - Total XP
 
-                    Text("Your Progress")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    // MARK: - XP and Streak
-
-                    HStack(spacing: 12) {
-
-                        // Shows the total XP earned.
-                        statCard(
-                            title: "Total XP",
-                            value: "\(progress.totalXP)",
-                            symbol: "star.fill"
-                        )
-
-                        // Shows consecutive challenge days.
-                        statCard(
-                            title: "Day Streak",
-                            value: "\(progress.currentStreak)",
-                            symbol: "flame.fill"
-                        )
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Total XP")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text("\(progress.totalXP)")
+                            .font(.system(size: 52, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(Color.brand)
                     }
+                    .card()
 
-                    // MARK: - Additional Statistics
+                    // MARK: - Streak, Challenges, Accuracy
 
                     HStack(spacing: 12) {
+
+                        // Consecutive days with a completed challenge.
+                        StatCard(
+                            title: "Streak",
+                            value: "\(progress.currentStreak)",
+                            unit: progress.currentStreak == 1 ? "day" : "days"
+                        )
 
                         // Number of completed challenges.
-                        statCard(
-                            title: "Challenges",
-                            value: "\(progress.challengesCompleted)",
-                            symbol: "checkmark.circle.fill"
+                        StatCard(
+                            title: "Done",
+                            value: "\(progress.challengesCompleted)"
                         )
 
                         // Average percentage of correct answers.
-                        statCard(
+                        // Shows "-" until there is a real score to average.
+                        StatCard(
                             title: "Accuracy",
-                            value: String(
-                                format: "%.0f%%",
-                                progress.averageAccuracy
-                            ),
-                            symbol: "target"
+                            value: hasResults ? String(format: "%.0f", progress.averageAccuracy) : "-",
+                            unit: hasResults ? "%" : ""
                         )
                     }
 
@@ -73,138 +68,87 @@ struct ProgressViewScreen: View {
 
                     VStack(alignment: .leading, spacing: 12) {
 
-                        Text("Challenge History")
+                        Text("Challenge history")
                             .font(.headline)
 
-                        if progress.results.isEmpty {
+                        if !hasResults {
 
-                            // MARK: - Empty Challenge History
-
-                            // Display this message when the user hasn't
-                            // completed any HearQuest challenges yet.
-                            // This works with older versions of iOS.
-                            VStack(spacing: 12) {
-
-                                // Show a chart icon.
-                                Image(systemName: "chart.bar")
-                                    .font(.largeTitle)
-                                    .foregroundStyle(.blue)
-
-                                // Tell the user there are no saved scores yet.
-                                Text("No Challenges Yet")
-                                    .font(.headline)
-
-                                // Explain how to get results to appear here.
-                                Text("Complete a challenge to see your scores.")
+                            // Shown until the user completes a challenge.
+                            VStack(spacing: 6) {
+                                Text("No challenges yet")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("Complete a challenge to see your scores here.")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                                     .multilineTextAlignment(.center)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 30)
-
+                            .padding(.vertical, 32)
 
                         } else {
 
-                            // Draw one bar for each completed challenge.
+                            // One bar for each completed challenge.
                             Chart {
                                 ForEach(
                                     Array(progress.results.enumerated()),
                                     id: \.element.id
                                 ) { index, result in
-
                                     BarMark(
-                                        x: .value(
-                                            "Challenge",
-                                            index + 1
-                                        ),
-                                        y: .value(
-                                            "Score",
-                                            result.correctAnswers
-                                        )
+                                        x: .value("Challenge", index + 1),
+                                        y: .value("Score", result.correctAnswers)
                                     )
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(Color.brand)
+                                    .cornerRadius(4)
                                 }
                             }
                             .chartYScale(domain: 0...5)
-                            .frame(height: 220)
+                            .chartYAxis {
+                                AxisMarks(values: [0, 1, 2, 3, 4, 5])
+                            }
+                            .frame(height: 200)
                         }
                     }
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.blue.opacity(0.07))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .card()
 
                     // MARK: - Recent Challenges
 
-                    VStack(alignment: .leading, spacing: 12) {
+                    if hasResults {
+                        VStack(alignment: .leading, spacing: 0) {
 
-                        Text("Recent Challenges")
-                            .font(.headline)
+                            Text("Recent challenges")
+                                .font(.headline)
+                                .padding(.bottom, 6)
 
-                        // Show the newest challenges first.
-                        ForEach(Array(progress.results.reversed()), id: \.id) { result in
+                            // Newest challenges first.
+                            let recent = Array(progress.results.reversed())
 
+                            ForEach(Array(recent.enumerated()), id: \.element.id) { index, result in
+                                HStack {
+                                    Text(result.date, style: .date)
+                                    Spacer()
+                                    Text("\(result.correctAnswers)/\(result.totalQuestions)")
+                                        .fontWeight(.semibold)
+                                        .monospacedDigit()
+                                    Text("+\(result.xpEarned) XP")
+                                        .foregroundStyle(Color.brand)
+                                        .monospacedDigit()
+                                        .frame(minWidth: 64, alignment: .trailing)
+                                }
+                                .font(.subheadline)
+                                .padding(.vertical, 10)
 
-                            HStack {
-
-                                Text(
-                                    result.date,
-                                    style: .date
-                                )
-
-                                Spacer()
-
-                                Text(
-                                    "\(result.correctAnswers)/\(result.totalQuestions)"
-                                )
-                                .fontWeight(.semibold)
-
-                                Text("+\(result.xpEarned) XP")
-                                    .foregroundStyle(.blue)
+                                if index < recent.count - 1 {
+                                    Divider()
+                                }
                             }
-
-                            Divider()
                         }
+                        .card()
                     }
-                    .padding()
-                    .background(Color.blue.opacity(0.07))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-
                 }
                 .padding()
             }
-            .navigationTitle("HearQuest")
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Progress")
         }
-    }
-
-    // MARK: - Reusable Statistic Card
-
-    // Creates a matching card for XP, streaks,
-    // challenges completed, and accuracy.
-    func statCard(
-        title: String,
-        value: String,
-        symbol: String
-    ) -> some View {
-
-        VStack(spacing: 10) {
-
-            Image(systemName: symbol)
-                .font(.title2)
-                .foregroundStyle(.blue)
-
-            Text(value)
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding()
-        .background(Color.blue.opacity(0.07))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }

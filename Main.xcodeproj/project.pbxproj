@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		8F19AC65308DBF7B00DF7388 /* SharedUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F19AC64308DBF7100DF7388 /* SharedUI.swift */; };
 		DF064610308A05E9005E6CA1 /* ProgressStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF06460F308A05E9005E6CA1 /* ProgressStore.swift */; };
 		DF064612308A077C005E6CA1 /* ProgressViewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF064611308A077C005E6CA1 /* ProgressViewScreen.swift */; };
 		DF46484D2E809D28007F9F20 /* MainApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF46484C2E809D28007F9F20 /* MainApp.swift */; };
@@ -37,6 +38,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		8F19AC64308DBF7100DF7388 /* SharedUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedUI.swift; sourceTree = "<group>"; };
 		DF06460F308A05E9005E6CA1 /* ProgressStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressStore.swift; sourceTree = "<group>"; };
 		DF064611308A077C005E6CA1 /* ProgressViewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressViewScreen.swift; sourceTree = "<group>"; };
 		DF4648492E809D28007F9F20 /* Main.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Main.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -102,6 +104,7 @@
 			isa = PBXGroup;
 			children = (
 				DF939F942F555627004F68F1 /* Main.entitlements */,
+				8F19AC64308DBF7100DF7388 /* SharedUI.swift */,
 				DFA548FA3089ED5700E0FA6C /* ChallengeResult.swift */,
 				DF06460F308A05E9005E6CA1 /* ProgressStore.swift */,
 				DF46484C2E809D28007F9F20 /* MainApp.swift */,
@@ -202,7 +205,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1420;
-				LastUpgradeCheck = 1420;
+				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					DF4648482E809D28007F9F20 = {
 						CreatedOnToolsVersion = 14.2;
@@ -270,6 +273,7 @@
 			files = (
 				DF064610308A05E9005E6CA1 /* ProgressStore.swift in Sources */,
 				DF46484F2E809D28007F9F20 /* ContentView.swift in Sources */,
+				8F19AC65308DBF7B00DF7388 /* SharedUI.swift in Sources */,
 				DFA548FB3089ED5700E0FA6C /* ChallengeResult.swift in Sources */,
 				DF064612308A077C005E6CA1 /* ProgressViewScreen.swift in Sources */,
 				DF46484D2E809D28007F9F20 /* MainApp.swift in Sources */,
@@ -345,6 +349,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -405,6 +410,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -490,7 +496,6 @@
 		DF4648712E809D2A007F9F20 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -509,7 +514,6 @@
 		DF4648722E809D2A007F9F20 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -528,7 +532,6 @@
 		DF4648742E809D2A007F9F20 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -545,7 +548,6 @@
 		DF4648752E809D2A007F9F20 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
