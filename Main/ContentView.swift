@@ -81,7 +81,6 @@ struct StreakView: View {
     @State private var exposureSamples: [ExposureSample] = []
     private let threshold = 85.0
     private let dailyLimitSeconds = 1800.0
-    @State private var showingExportPrompt = false
     @State private var phoneLastFour = ""
     @State private var exportURLs: [URL] = []
     @State private var showingShareSheet = false
@@ -98,71 +97,7 @@ struct StreakView: View {
         }
     }
     
-    func exportData(phoneLastFour: String, completion: @escaping ([URL]) -> Void) {
-        let calendar = Calendar.current
-        let fourMonthsAgo = calendar.date(byAdding: .month, value: -4, to: Date())!
-        
-        guard let exposureType = HKObjectType.quantityType(forIdentifier: .headphoneAudioExposure) else { return }
-        
-        let predicate = HKQuery.predicateForSamples(withStart: fourMonthsAgo, end: Date())
-        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
-        
-        let query = HKSampleQuery(
-            sampleType: exposureType,
-            predicate: predicate,
-            limit: HKObjectQueryNoLimit,
-            sortDescriptors: [sortDescriptor]
-        ) { _, samples, _ in
-            let samples = (samples as? [HKQuantitySample]) ?? []
-            
-            let formatter = DateFormatter()
-            formatter.dateStyle = .short
-            
-            // Build exposure CSV
-            var exposureCSV = "Date,Average dB,Max dB\n"
-            var grouped: [Date: [Double]] = [:]
-            
-            for sample in samples {
-                let day = calendar.startOfDay(for: sample.startDate)
-                let db = sample.quantity.doubleValue(for: .decibelAWeightedSoundPressureLevel())
-                grouped[day, default: []].append(db)
-            }
-            
-            for (day, values) in grouped.sorted(by: { $0.key < $1.key }) {
-                let avg = values.reduce(0, +) / Double(values.count)
-                let max = values.max() ?? avg
-                exposureCSV += "\(formatter.string(from: day)),\(String(format: "%.1f", avg)),\(String(format: "%.1f", max))\n"
-            }
-            
-            // Build hearing CSV
-            var hearingCSV = "Date,Frequency,Left Ear,Right Ear\n"
-            if let data = UserDefaults.standard.data(forKey: "hearingTestResults"),
-               let results = try? JSONDecoder().decode([HearingTestResult].self, from: data) {
-                for test in results {
-                    for freq in [250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0] {
-                        let left = test.leftEar[String(freq)] ?? 0
-                        let right = test.rightEar[String(freq)] ?? 0
-                        hearingCSV += "\(formatter.string(from: test.date)),\(Int(freq)),\(left),\(right)\n"
-                    }
-                }
-            }
-            
-            // Write files
-            let tempDir = FileManager.default.temporaryDirectory
-            let exposureURL = tempDir.appendingPathComponent("exposure_\(phoneLastFour).csv")
-            let hearingURL = tempDir.appendingPathComponent("hearing_\(phoneLastFour).csv")
-            
-            try? exposureCSV.write(to: exposureURL, atomically: true, encoding: .utf8)
-            try? hearingCSV.write(to: hearingURL, atomically: true, encoding: .utf8)
-            
-            DispatchQueue.main.async {
-                completion([exposureURL, hearingURL])
-            }
-        }
-        
-        healthStore.execute(query)
-    }
-    
+ 
     func scheduleStreakNotification() {
         print("notif")
         let notif = UNUserNotificationCenter.current()
@@ -296,7 +231,7 @@ struct StreakView: View {
                             .padding(.top, 8)
                             
                             Text(todayIsSafe
-                                 ? "\(Int(todayLoudSeconds / 60)) of \(limitMinutes) loud minutes used today"
+                                 ? "\(Int(todayLoudSeconds / 60)) of \(limitMinutes) minutes today"
                                  : "Over today's \(limitMinutes) minute limit")
                                 .font(.subheadline)
                                 .foregroundStyle(todayIsSafe ? Color.secondary : Color.red)
@@ -304,75 +239,22 @@ struct StreakView: View {
                         .frame(maxWidth: .infinity)
                         .card()
                         
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Last 7 days")
-                                .font(.headline)
-                            HStack {
-                                ForEach(lastSevenDays) { day in
-                                    VStack(spacing: 6) {
-                                        Text(day.date.formatted(.dateTime.weekday(.narrow)))
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        Circle()
-                                            .fill(day.beforeInstall ? Color(.systemGray5)
-                                                  : day.safe ? Color.brand : Color.red.opacity(0.85))
-                                            .frame(width: 30, height: 30)
-                                            .overlay {
-                                                if !day.beforeInstall {
-                                                    Image(systemName: day.safe ? "checkmark" : "xmark")
-                                                        .font(.caption.weight(.bold))
-                                                        .foregroundStyle(.white)
-                                                }
-                                            }
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                }
-                            }
-                        }
-                        .card()
                         
                         HStack(spacing: 16) {
                             StatCard(title: "Best streak", value: "\(bestStreak)",
                                      unit: bestStreak == 1 ? "day" : "days")
-                            StatCard(title: "Daily limit", value: "\(limitMinutes)", unit: "min")
                         }
                         
-                        Text("A day counts toward your streak when you spend less than \(limitMinutes) minutes listening at \(Int(threshold)) dB or louder.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 4)
                     }
                     .padding()
                 }
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Streak")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showingExportPrompt = true
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                    .accessibilityLabel("Export data")
-                }
-            }
-            .alert("Export Data", isPresented: $showingExportPrompt) {
-                TextField("Last 4 digits of phone", text: $phoneLastFour)
-                    .keyboardType(.numberPad)
-                Button("Export") {
-                    exportData(phoneLastFour: phoneLastFour) { urls in
-                        exportURLs = urls
-                        showingShareSheet = true
-                    }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Exports the last four months of listening levels and your hearing test results as CSV files.")
-            }
-            .sheet(isPresented: $showingShareSheet) {
-                ShareSheet(items: exportURLs)
-            }
+            
+            
+           
+        
             .onAppear {
                 print("appear")
                 scheduleStreakNotification()
@@ -385,11 +267,10 @@ struct StreakView: View {
     }
 }
 
-// MARK: - Hearing test
 
 struct TestView: View {
     @State private var currentFrequency: Double = 1000.0
-    @State private var currentVolume: Float = 0.5
+    @State private var currentVolume: Float = 10
     @State private var isPlaying = false
     @State private var testStarted = false
     @State private var currentEar: String = "left"
@@ -405,34 +286,9 @@ struct TestView: View {
     @State private var testComplete = false
     @State private var timer: Timer? = nil
     
-    func saveTestResult() {
-        var leftDict: [String: Float] = [:]
-        var rightDict: [String: Float] = [:]
-        
-        for (freq, value) in rightEarResults {
-            leftDict[String(freq)] = value
-        }
-        for (freq, value) in results {
-            rightDict[String(freq)] = value
-        }
-        
-        let result = HearingTestResult(date: Date(), leftEar: leftDict, rightEar: rightDict)
-        
-        var saved: [HearingTestResult] = []
-        if let data = UserDefaults.standard.data(forKey: "hearingTestResults"),
-           let decoded = try? JSONDecoder().decode([HearingTestResult].self, from: data) {
-            saved = decoded
-        }
-        
-        saved.append(result)
-        
-        if let encoded = try? JSONEncoder().encode(saved) {
-            UserDefaults.standard.set(encoded, forKey: "hearingTestResults")
-        }
-    }
-    
+
     func playTone(frequency: Double, volume: Float) {
-        print("Playing \(frequency) Hz at volume \(volume) for \(currentEar) ear")
+        print("Playing \(frequency) Hz at \(volume) dB for \(currentEar) ear")
         audioengine.stop()
         audioengine.reset()
         let sampleRate: Double = 44100.0
@@ -444,8 +300,10 @@ struct TestView: View {
         let leftChannel = buffer.floatChannelData![0]
         let rightChannel = buffer.floatChannelData![1]
         
+        let amplitude = min(powf(10, (volume - 100) / 20), 1.0)
+        
         for frame in 0..<Int(frameCount) {
-            let sample = sin(2.0 * Float.pi * Float(frequency) * Float(frame) / Float(sampleRate)) * volume
+            let sample = sin(2.0 * Float.pi * Float(frequency) * Float(frame) / Float(sampleRate)) * amplitude
             leftChannel[frame] = currentEar == "left" ? sample : 0
             rightChannel[frame] = currentEar == "right" ? sample : 0
         }
@@ -460,7 +318,7 @@ struct TestView: View {
     
     func startTimer() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { _ in
             DispatchQueue.main.async {
                 cantHearIt()
             }
@@ -475,12 +333,8 @@ struct TestView: View {
     
     func startingVolume(for frequency: Double) -> Float {
         switch frequency {
-        case 250:
-            return 0.00003
-        case 500:
-            return 0.00002
         default:
-            return 0.00001
+            return 10
         }
     }
     
@@ -489,7 +343,7 @@ struct TestView: View {
         timer = nil
         print("Heard at volume: \(currentVolume) for frequency: \(frequencies[frequencyIndex])")
         stopTone()
-        results[frequencies[frequencyIndex]] = currentVolume - startingVolume(for: frequencies[frequencyIndex]) + 0.00001
+        results[frequencies[frequencyIndex]] = currentVolume
         if frequencyIndex < frequencies.count - 1 {
             frequencyIndex += 1
             currentVolume = startingVolume(for: frequencies[frequencyIndex])
@@ -513,7 +367,6 @@ struct TestView: View {
                     startTimer()
                 }
             } else {
-                saveTestResult()
                 testComplete = true
             }
         }
@@ -521,7 +374,11 @@ struct TestView: View {
     
     func cantHearIt() {
         stopTone()
-        currentVolume = min(currentVolume + 0.00001, 0.1)
+        if currentVolume >= 100 {
+            heardIt()
+            return
+        }
+        currentVolume += 2
         playTone(frequency: frequencies[frequencyIndex], volume: currentVolume)
         startTimer()
         print("didnt hear")
@@ -529,9 +386,9 @@ struct TestView: View {
     
     func interpret(_ volume: Float) -> String {
         switch volume {
-        case ..<0.00005:
+        case ..<26:
             return "Normal"
-        case 0.00005..<0.0001:
+        case 26..<40:
             return "Mild loss"
         default:
             return "Significant loss"
@@ -546,7 +403,7 @@ struct TestView: View {
     }
     
     func color(for volume: Float) -> Color {
-        volume < 0.00005 ? .green : volume < 0.0001 ? .orange : .red
+        volume < 26 ? .green : volume < 40 ? .orange : .red
     }
     
     // Same code as the original "Begin Test" button.
@@ -591,20 +448,17 @@ struct TestView: View {
     private var introView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Check how well you hear quiet tones at six pitches in each ear.")
-                    .foregroundStyle(.secondary)
                 
                 VStack(alignment: .leading, spacing: 18) {
-                    stepRow(icon: "headphones", title: "Put on headphones", detail: "Find a quiet room first.")
-                    stepRow(icon: "speaker.wave.3.fill", title: "Turn volume all the way up", detail: "The tones start very quietly.")
+                    stepRow(icon: "headphones", title: "Put on headphones", detail: "Find a quiet area")
+                    stepRow(icon: "speaker.wave.3.fill", title: "Turn volume all the way up", detail: "The tones will not be loud.")
                     stepRow(icon: "hand.tap.fill", title: "Tap when you hear a tone", detail: "Even if it's faint.")
                 }
                 .card()
                 
                 Text("This is not a medical hearing test. Results depend on your headphones and device and should not be used for diagnosis. If you're concerned about your hearing, talk to a licensed audiologist or doctor.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
+                    .font(.title3)
+                    .foregroundStyle(.red)
             }
             .padding()
         }
@@ -644,10 +498,6 @@ struct TestView: View {
             VStack(spacing: 6) {
                 Text(currentEar == "left" ? "Left ear" : "Right ear")
                     .font(.system(.title2, design: .rounded).weight(.semibold))
-                Text("Tone \(frequencyIndex + 1) of \(frequencies.count)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
             }
             .padding(.top, 24)
             
@@ -666,15 +516,7 @@ struct TestView: View {
             }
             .buttonStyle(PressableStyle())
             
-            Text("Tones may be very quiet. Tap as soon as you hear one.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-                .padding(.top, 12)
-            
-            Spacer()
-            
+
             Button("Cancel Test", role: .destructive, action: resetTest)
                 .padding(.bottom, 16)
         }
@@ -719,8 +561,8 @@ struct TestView: View {
                     }
                 }
             }
-            .chartYAxis(.hidden)
-            .chartYScale(domain: 0...0.0002)
+            
+            .chartYScale(domain: 0...100)
             .frame(height: 140)
             
             Divider()
@@ -743,7 +585,6 @@ struct TestView: View {
     }
 }
 
-// MARK: - Data
 
 struct DataView: View {
     

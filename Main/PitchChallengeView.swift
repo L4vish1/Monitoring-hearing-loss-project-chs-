@@ -172,10 +172,6 @@ struct PitchChallengeView: View {
                         questionCard
                     }
 
-                    Text("Use a comfortable listening volume. This is a listening game, not a medical hearing test.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
                 }
                 .padding()
             }
